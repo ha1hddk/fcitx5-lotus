@@ -257,8 +257,14 @@ namespace fcitx {
          * When is_deleting_ is true, non-special keystrokes are buffered
          * instead of being discarded. This method replays them after the
          * replacement completes.
+         *
+         * Text produced while replaying is committed together with
+         * @p pendingCommit in a single commitString call. On Wayland
+         * text-input-v3 only the last commit_string before done is applied,
+         * so two back-to-back commits would drop the first one.
+         * @param pendingCommit Text to commit ahead of the replayed keys.
          */
-        void replayBufferedKeys();
+        void replayBufferedKeys(std::string pendingCommit = {});
 
         /**
          * @brief Checks if the key symbol matches the configured macro-skip modifier.

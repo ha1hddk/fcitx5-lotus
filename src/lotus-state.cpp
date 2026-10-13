@@ -449,16 +449,11 @@ namespace fcitx {
         std::string commitText = std::move(pending_commit_string_);
         pending_commit_string_.clear();
 
-        if (!commitText.empty()) {
-            ic_->commitString(commitText);
-            updateLastCommitTime();
-            LOTUS_INFO("Commit: " + commitText);
-        }
         expected_backspaces_     = 0;
         current_backspace_count_ = 0;
         event.filterAndAccept();
         is_deleting_.store(false, std::memory_order_release);
-        replayBufferedKeys();
+        replayBufferedKeys(std::move(commitText));
     }
 
     bool LotusState::handleUInputKeyPress(KeyEvent& event, KeySym currentSym) {
@@ -1261,9 +1256,18 @@ namespace fcitx {
         return !hasHistory_;
     }
 
-    void LotusState::replayBufferedKeys() {
+    void LotusState::replayBufferedKeys(std::string pendingCommit) {
+        auto flushCommit = [this, &pendingCommit]() {
+            if (pendingCommit.empty())
+                return;
+            ic_->commitString(pendingCommit);
+            updateLastCommitTime();
+            LOTUS_INFO("Commit: " + pendingCommit);
+            pendingCommit.clear();
+        };
         LOTUS_INFO("Starting replay buffered keys");
         if (buffered_keys_.empty()) {
+            flushCommit();
             return;
         }
         auto keys = std::move(buffered_keys_);
@@ -1292,6 +1296,7 @@ namespace fcitx {
                             buffered_keys_.push_back(keys[j]);
                         }
                     }
+                    flushCommit();
                     performReplacement(deletedPart, addedPart);
                     hasHistory_ = false;
                     ResetEngine(lotusEngine_.handle());
@@ -1299,7 +1304,7 @@ namespace fcitx {
                     return;
                 }
                 if (!addedPart.empty()) {
-                    ic_->commitString(addedPart);
+                    pendingCommit += addedPart;
                 }
 
                 hasHistory_ = false;
@@ -1309,7 +1314,7 @@ namespace fcitx {
             }
 
             if (!processed) {
-                ic_->commitString(keyUtf8);
+                pendingCommit += keyUtf8;
                 continue;
             }
 
@@ -1324,12 +1329,12 @@ namespace fcitx {
             if (compareAndSplitStrings(oldPreBuffer_, preeditStr, deletedPart, addedPart) != 0) {
                 if (deletedPart.empty()) {
                     if (!addedPart.empty()) {
-                        ic_->commitString(addedPart);
+                        pendingCommit += addedPart;
                         oldPreBuffer_ = preeditStr;
                     }
                 } else {
                     if (uinput_client_fd_ < 0) {
-                        ic_->commitString(keyUtf8);
+                        pendingCommit += keyUtf8;
                         continue;
                     }
 
@@ -1343,12 +1348,14 @@ namespace fcitx {
                             buffered_keys_.push_back(keys[j]);
                         }
                     }
+                    flushCommit();
                     performReplacement(deletedPart, addedPart);
                     oldPreBuffer_ = preeditStr;
                     return;
                 }
             }
         }
+        flushCommit();
         LOTUS_INFO("Replay buffered keys done");
     }
 
